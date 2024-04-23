@@ -1,0 +1,145 @@
+项目地址：https://github.com/2DIPW/dub_genius.git     这是报错，：
+
+PS D:\AI\dub_genius_1.0.0_gpu> ./dub_genius.exe
+
+PS D:\AI\dub_genius_1.0.0_gpu> Some weights of the model checkpoint at pretrained/chinese-hubert-base were not used when initializing HubertModel: ['encoder.pos_conv_embed.conv.weight_g', 'encoder.pos_conv_embed.conv.weight_v']
+
+- This IS expected if you are initializing HubertModel from the checkpoint of a model trained on another task or with another architecture (e.g. initializing a BertForSequenceClassification model from a BertForPreTraining model).
+
+- This IS NOT expected if you are initializing HubertModel from the checkpoint of a model that you expect to be exactly identical (initializing a BertForSequenceClassification model from a BertForSequenceClassification model).
+
+Some weights of HubertModel were not initialized from the model checkpoint at pretrained/chinese-hubert-base and are newly initialized: ['encoder.pos_conv_embed.conv.parametrizations.weight.original0', 'encoder.pos_conv_embed.conv.parametrizations.weight.original1']
+
+You should probably TRAIN this model on a down-stream task to be able to use it for predictions and inference.
+
+Traceback (most recent call last):
+
+ File "<string>", line 39, in <module>
+
+ File "D:\AI\dub_genius_1.0.0_gpu\dub_genius.py", line 7, in <module>
+
+  frmMain_ = frmMain()
+
+ File "D:\AI\dub_genius_1.0.0_gpu\controller\frmMain.py", line 147, in __init__
+
+  self.comboboxModelSet_currentIndexChanged() # 强制触发一次切换当前模型
+
+ File "D:\AI\dub_genius_1.0.0_gpu\controller\frmMain.py", line 250, in comboboxModelSet_currentIndexChanged
+
+  self.inference_core.change_gpt_weights(self.model_sets_list[index]["GPT"])
+
+ File "D:\AI\dub_genius_1.0.0_gpu\inference_core.py", line 161, in change_gpt_weights
+
+  dict_s1 = torch.load(gpt_path, map_location="cpu")
+
+ File "D:\AI\dub_genius_1.0.0_gpu\site-packages\torch\serialization.py", line 998, in load
+
+  with _open_file_like(f, 'rb') as opened_file:
+
+ File "D:\AI\dub_genius_1.0.0_gpu\site-packages\torch\serialization.py", line 445, in _open_file_like
+
+  return _open_file(name_or_buffer, mode)
+
+ File "D:\AI\dub_genius_1.0.0_gpu\site-packages\torch\serialization.py", line 426, in __init__
+
+  super().__init__(open(name, mode))
+
+FileNotFoundError: [Errno 2] No such file or directory: 'D:/AI/GPT-SoVITS-beta0217/GPT_SoVITS/pretrained_models/s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt'
+
+
+
+问题解决：
+
+，问了chatgpt， 文件路径dub_genius_1.0.0_gpu\inference_core.py    函数模块change_gpt_weights 和 change_sovits_weights 函数没有返回需要加入异常处理，添加修改如下：
+
+
+
+def change_gpt_weights(gpt_path):
+
+  global hz, max_sec, t2s_model, config
+
+  hz = 50
+
+  try:
+
+    dict_s1 = torch.load(gpt_path, map_location="cpu")
+
+  except FileNotFoundError as e:
+
+    print(f"模型文件 '{gpt_path}' 不存在，请检查路径或下载模型文件。")
+
+    print("程序继续执行其他操作...")
+
+    return # 直接返回，结束函数
+
+
+
+  config = dict_s1["config"]
+
+  max_sec = config["data"]["max_sec"]
+
+  t2s_model = Text2SemanticLightningModule(config, "****", is_train=False)
+
+  t2s_model.load_state_dict(dict_s1["weight"])
+
+  if is_half:
+
+    t2s_model = t2s_model.half()
+
+  t2s_model = t2s_model.to(device)
+
+  t2s_model.eval()
+
+
+
+def change_sovits_weights(sovits_path):
+
+  global vq_model, hps
+
+  try:
+
+    dict_s2 = torch.load(sovits_path, map_location="cpu")
+
+  except FileNotFoundError as e:
+
+    print(f"模型文件 '{sovits_path}' 不存在，请检查路径或下载模型文件。")
+
+    print("程序继续执行其他操作...")
+
+    return # 直接返回，结束函数
+
+
+
+  hps = dict_s2["config"]
+
+  hps = DictToAttrRecursive(hps)
+
+  hps.model.semantic_frame_rate = "25hz"
+
+  vq_model = SynthesizerTrn(
+
+    hps.data.filter_length // 2 + 1,
+
+    hps.train.segment_size // hps.data.hop_length,
+
+    n_speakers=hps.data.n_speakers,
+
+    **hps.model
+
+  )
+
+  if "pretrained" not in sovits_path:
+
+    del vq_model.enc_q
+
+  if is_half:
+
+    vq_model = vq_model.half().to(device)
+
+  else:
+
+    vq_model = vq_model.to(device)
+
+  vq_model.eval()
+
+  vq_model.load_state_dict(dict_s2["weight"], strict=False)
